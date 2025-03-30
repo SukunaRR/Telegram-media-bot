@@ -1,79 +1,103 @@
-from telegram import Update, InputMediaPhoto
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import logging
+import os
 
-TOKEN = "8064503977:AAFdiBu75juk8dZqOmmmw8RMAuBPCjFDcus"  # Replace with your token
-PHOTOS = [
-    "https://files.catbox.moe/tp4e9f.jpg",  # Use direct image URLs
-    "https://files.catbox.moe/5uothz.jpg"
-]
-CAPTION = "✨ *🔻𝗣𝗥𝗘𝗠𝗜𝗨𝗠 𝗔𝗖𝗖𝗢𝗨𝗡𝗧🔺
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-♨️ACCOUNT LVL-79 HIGH' 
-♨️RP:- OLD TO NEW MAX
-♨️600 + UC AVAILABLE 
-♨️1BIG MATERIAL
+# Configuration
+TOKEN = '7444805320:AAFmTqe6Bnw6TO5PIxnbPvoHTP6_YqwVqhs'  # Replace with your bot token
+CHANNEL_ID = -1002369652420  # Replace with your channel ID (include the -100)
+LAST_PHOTO_FILE = 'last_photo.txt'  # File to store the last photo info
 
-⛔ MYTHIC FASHION AVATAR [ 77/300 ]
+# Store the last photo details
+last_photo = {'file_id': None, 'caption': None}
 
-🌟GALADRIA X-SUIT [LEVEL-2]
-                  • ɪᴛᴇᴍs ᴜɴʟᴏᴄᴋ•  
-        [ғʀᴀᴍᴇ,ʙᴀɢ,ᴏʀɴᴀ,ᴘᴀʀᴀᴄʜᴜᴛᴇ]
+def save_last_photo():
+    """Save the last photo info to file"""
+    with open(LAST_PHOTO_FILE, 'w') as f:
+        f.write(f"{last_photo['file_id']}\n{last_photo['caption'] or ''}")
 
-💠SET DYSTOPIAN SURVIVOR
-💠SET FIEND HUNTRESS
-💠SET JOKER OF SPADES
-💠SET THORN TROOPER
-💠SET CACTUS HAZARD
-💠SET MELODIC FELINE
-💠SET LAMBLING 
+def load_last_photo():
+    """Load the last photo info from file"""
+    if os.path.exists(LAST_PHOTO_FILE):
+        with open(LAST_PHOTO_FILE, 'r') as f:
+            lines = f.readlines()
+            if len(lines) >= 2:
+                last_photo['file_id'] = lines[0].strip()
+                last_photo['caption'] = lines[1].strip() if lines[1].strip() else None
 
-#WEAPON
-📛M416 GLACIER LEVEL 6
-📛AKM GLACIER LEVEL 4
-📛UZI SAVAGERY LEVEL 4
-📛GROZA RYOMEN LEVEL 2
-📛UMP45 MARINE LEVEL 1
-📛M16A4 THORNROSE LEVEL 1
-📛UZI SPIRIT SENTRY LEVEL 1
-📛SEADREAM MELODY LEVEL 1
-📛NIGHTSCAPE PP-19 BIZON LEVEL 1
-📛VIOLETFINESSE THOMPSON LEVEL 1
-📛DBS PANTHERA PRIME LEVEL 1
-📛MAGEBLAZE SLR LEVEL 1
-📛FAERIE LUSTER PAN LEVEL 1
-📛DRAKONBANE MACHETE LEVEL 1
-📛TUNDRA KINGHT LEVEL 1
-📛CROSSBOW LEVEL 1
-📛GRENADE KILL MSG
-
-#VEHICLE
-🚙UAZ AVAILABLE 
-🚘DACIA AVAILABLE 
-🏎BUGGY AVAILABLE 
-🏍️BIKE AVAILABLE 
-
-✏️ MORE INFO CHECK SS
-
-💵PRICE ➪  DM
-
-🔒LOGIN ➪ SAFE
-
-❣️  DM    ➪ @Rahool_gg* ✨"
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    media_group = [
-        InputMediaPhoto(media=url, caption=CAPTION if i == 0 else "")
-        for i, url in enumerate(PHOTOS)
-    ]
-    await context.bot.send_media_group(
-        chat_id=update.effective_chat.id,
-        media=media_group
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send welcome message when the command /start is issued."""
+    await update.message.reply_text(
+        "Hello! Use /getphoto to receive the latest photo from our private collection."
     )
 
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.run_polling()
+async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the last photo to the user"""
+    if not last_photo['file_id']:
+        await update.message.reply_text("No photos available yet.")
+        return
+    
+    try:
+        if last_photo['caption']:
+            await update.message.reply_photo(
+                photo=last_photo['file_id'],
+                caption=last_photo['caption']
+            )
+        else:
+            await update.message.reply_photo(photo=last_photo['file_id'])
+    except Exception as e:
+        logger.error(f"Error sending photo: {e}")
+        await update.message.reply_text("Sorry, couldn't send the photo. Please try again later.")
 
-if __name__ == "__main__":
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle new posts in the channel"""
+    channel_post = update.channel_post
+    
+    # Check if the post contains a photo
+    if channel_post.photo:
+        # Get the highest quality photo
+        photo = sorted(channel_post.photo, key=lambda p: p.width * p.height, reverse=True)[0]
+        
+        # Store the photo details
+        last_photo['file_id'] = photo.file_id
+        last_photo['caption'] = channel_post.caption
+        
+        # Save to file
+        save_last_photo()
+        
+        logger.info("New photo stored in channel")
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors caused by updates."""
+    logger.error(f"Update {update} caused error {context.error}")
+
+def main() -> None:
+    """Start the bot."""
+    # Load the last photo if it exists
+    load_last_photo()
+    
+    # Create the Application
+    application = Application.builder().token(TOKEN).build()
+
+    # Register command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("getphoto", get_photo))
+
+    # Handle channel posts
+    application.add_handler(MessageHandler(filters.Chat(chat_id=CHANNEL_ID) & filters.PHOTO, handle_channel_post))
+
+    # Register error handler
+    application.add_error_handler(error_handler)
+
+    # Run the bot until you press Ctrl-C
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
     main()
